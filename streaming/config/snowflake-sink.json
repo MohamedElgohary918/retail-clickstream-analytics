@@ -1,0 +1,27 @@
+{
+  "name": "RETAIL_CLICKSTREAM_SNOWFLAKE_SINK",
+  "config": {
+    "connector.class": "com.snowflake.kafka.connector.SnowflakeStreamingSinkConnector",
+    "tasks.max": "1",
+    "topics": "clickstream_events",
+    "snowflake.topic2table.map": "clickstream_events:RAW_CLICKSTREAM_EVENTS",
+
+    "snowflake.url.name": "https://LAZCHBD-OB50062.snowflakecomputing.com",
+    "snowflake.user.name": "RETAIL_KAFKA_CONNECT_USER",
+    "snowflake.role.name": "RETAIL_KAFKA_CONNECT_ROLE",
+    "snowflake.database.name": "RETAIL_CLICKSTREAM_DB",
+    "snowflake.schema.name": "RAW",
+    "snowflake.private.key": "${file:/secrets/snowflake/connector-secrets.properties:snowflake.private.key}",
+
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+
+    "snowflake.streaming.validate.compatibility.with.classic": "false",
+    "snowflake.cache.table.exists": "false",
+    "snowflake.cache.pipe.exists": "false",
+
+    "errors.log.enable": "true",
+    "errors.tolerance": "none"
+  }
+}

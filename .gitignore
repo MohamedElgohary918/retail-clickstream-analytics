@@ -1,0 +1,102 @@
+# =============================================================================
+# Python
+# =============================================================================
+
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python testing and tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+
+# =============================================================================
+# Secrets and credentials
+# =============================================================================
+
+# Local connector credentials
+connector-secrets.properties
+*-secrets.properties
+secrets.properties
+
+# Private keys and certificates
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+
+# Environment variables and local configuration
+.env
+.env.*
+!.env.example
+
+
+# =============================================================================
+# Streaming state and logs
+# =============================================================================
+
+# Producer checkpoint: local replay position
+streaming/producer/checkpoint.json
+
+# Generated logs
+streaming/logs/
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+
+# =============================================================================
+# Datasets and generated data
+# =============================================================================
+
+# Large source datasets
+data/*.csv
+
+# Generated or processed datasets
+data/processed/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# If you later add small, intentional sample datasets, force-add them
+# selectively or create a separate tracked sample-data directory.
+
+
+# =============================================================================
+# IDEs and operating system files
+# =============================================================================
+
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+.DS_Store
+Thumbs.db
+
+
+# =============================================================================
+# Docker and local runtime artifacts
+# =============================================================================
+
+# Local Docker overrides
+docker-compose.override.yml
+compose.override.yaml

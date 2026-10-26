@@ -100,3 +100,11 @@ Thumbs.db
 # Local Docker overrides
 docker-compose.override.yml
 compose.override.yaml
+
+# dbt local artifacts and credentials
+target/
+dbt_packages/
+profiles.yml
+
+# Local application logs
+logs/

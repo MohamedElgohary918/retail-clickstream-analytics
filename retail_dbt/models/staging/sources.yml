@@ -1,0 +1,27 @@
+
+version: 2
+
+sources:
+  - name: retail_raw
+    description: "Raw PostgreSQL OLTP and Kafka replay data in Snowflake."
+    database: RETAIL_CLICKSTREAM_DB
+    schema: RAW
+
+    tables:
+      - name: customers
+        identifier: RAW_CUSTOMERS
+
+      - name: products
+        identifier: RAW_PRODUCTS
+
+      - name: orders
+        identifier: RAW_ORDERS
+
+      - name: order_items
+        identifier: RAW_ORDER_ITEMS
+
+      - name: inventory
+        identifier: RAW_INVENTORY
+
+      - name: clickstream_events
+        identifier: RAW_CLICKSTREAM_EVENTS

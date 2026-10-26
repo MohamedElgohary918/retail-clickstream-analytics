@@ -1,0 +1,95 @@
+version: 2
+
+models:
+  - name: stg_customers
+    description: "Normalized customers; email lowercased and surrounding spaces removed."
+    columns:
+      - name: CUSTOMER_ID
+        data_tests: [not_null, unique]
+
+  - name: stg_products
+    description: "Products with nullable source attributes and separate Unknown display labels."
+    columns:
+      - name: PRODUCT_ID
+        data_tests: [not_null, unique]
+
+  - name: stg_orders
+    description: "Orders with a standardized status, preserving the raw status."
+    columns:
+      - name: ORDER_ID
+        data_tests: [not_null, unique]
+      - name: CUSTOMER_ID
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_customers')
+                field: CUSTOMER_ID
+      - name: ORDER_STATUS
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['DELIVERED', 'SHIPPED', 'PROCESSING', 'PENDING', 'CANCELLED', 'REFUNDED']
+
+  - name: stg_order_items
+    description: "Order lines with a diagnostic total mismatch flag."
+    columns:
+      - name: ORDER_ITEM_ID
+        data_tests: [not_null, unique]
+      - name: ORDER_ID
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_orders')
+                field: ORDER_ID
+      - name: PRODUCT_ID
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_products')
+                field: PRODUCT_ID
+
+  - name: stg_inventory
+    description: "Inventory with out-of-stock and reorder flags; zero stock is valid."
+    columns:
+      - name: PRODUCT_ID
+        data_tests:
+          - not_null
+          - unique
+          - relationships:
+              arguments:
+                to: ref('stg_products')
+                field: PRODUCT_ID
+
+  - name: stg_clickstream_events
+    description: "Historical clickstream replay without unsafe deduplication; includes a composite session key."
+    columns:
+      - name: EVENT_TIME
+        data_tests: [not_null]
+      - name: SIMULATED_AT
+        data_tests: [not_null]
+      - name: EVENT_TYPE
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['view', 'cart', 'remove_from_cart', 'purchase']
+      - name: USER_ID
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_customers')
+                field: CUSTOMER_ID
+      - name: PRODUCT_ID
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_products')
+                field: PRODUCT_ID
+      - name: USER_SESSION
+        data_tests: [not_null]

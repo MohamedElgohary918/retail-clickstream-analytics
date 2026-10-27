@@ -1,0 +1,27 @@
+
+{{
+    config(
+        materialized='table'
+    )
+}}
+
+SELECT
+    PRODUCT_ID,
+    STOCK_QUANTITY,
+    REORDER_LEVEL,
+    INVENTORY_ORIGIN,
+    IS_OUT_OF_STOCK,
+    IS_AT_OR_BELOW_REORDER_LEVEL,
+    HAS_INVALID_STOCK_QUANTITY,
+    HAS_INVALID_REORDER_LEVEL,
+    IS_MISSING_INVENTORY_ORIGIN,
+
+    DBT_VALID_FROM AS VALID_FROM,
+    DBT_VALID_TO AS VALID_TO,
+
+    CASE
+        WHEN DBT_VALID_TO IS NULL THEN TRUE
+        ELSE FALSE
+    END AS IS_CURRENT
+
+FROM {{ ref('inventory_snapshot') }}

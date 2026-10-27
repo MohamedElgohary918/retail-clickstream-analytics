@@ -1,0 +1,24 @@
+
+name: 'retail_gold_dbt'
+version: '1.0.0'
+config-version: 2
+
+profile: 'gold_layer'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  retail_gold_dbt:
+    dimensions:
+      +materialized: table
+    facts:
+      +materialized: table

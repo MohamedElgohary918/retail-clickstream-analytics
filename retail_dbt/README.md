@@ -30,15 +30,15 @@ The staging views query the underlying RAW tables when read. New rows already co
 | `RAW_ORDERS` | `stg_orders` | One order | Standardize status; identify invalid totals and missing timestamps |
 | `RAW_ORDER_ITEMS` | `stg_order_items` | One order item | Validate quantity, unit price, line total, and arithmetic consistency |
 | `RAW_INVENTORY` | `stg_inventory` | One product inventory record | Flag invalid stock/reorder values; retain valid zero-stock records |
-| `RAW_CLICKSTREAM_EVENTS` | `stg_clickstream_events` | One source event row | Standardize event types; preserve original/replay times; composite user/session key; quality flags |
+| `RAW_CLICKSTREAM_EVENTS` | `stg_clickstream_events` | One source event row | Preserve `EVENT_ID`; standardize event types; preserve historical/replay timestamps; create composite user/session key; quality flags |
 
-All six models preserve the **source row grain**. Cross-table joins, business aggregations, star-schema design, and KPI definitions are intentionally left to the downstream modeling team.
+The clickstream view includes the source-provided `EVENT_ID` alongside the derived `SESSION_KEY`; these have distinct purposes (event identity vs. session grouping). All six models preserve the **source row grain**. Cross-table joins, business aggregations, star-schema design, and KPI definitions are intentionally left to the downstream modeling team.
 
 ### Data handling policies
 
 - **Missing category/brand:** retain source `NULL` values and expose display labels or missing-value flags where implemented. Missing descriptive fields do not trigger row deletion.
 - **Zero values:** keep plausible values (such as out-of-stock inventory and zero-priced products) and flag them for interpretation; distinguish them from invalid negative values.
-- **Clickstream duplicates:** do not drop events just because payload fields match. RAW currently lacks a stable event ID or Kafka topic/partition/offset metadata for reliable deduplication.
+- **Clickstream event identity:** `EVENT_ID` (Snowflake `NUMBER(38,0)`) is supplied by the ingestion pipeline and passed through staging unchanged. The staging layer checks for missing and duplicate IDs, but does not delete or deduplicate events. For retry-safe deduplication, the producer/consumer must preserve the same ID for the same logical event across retries/replays. Different IDs can still describe a replay of the same logical source event.
 - **Timestamps:** `EVENT_TIME` represents the historical event time; `SIMULATED_AT` represents the replay timestamp, not a verified Snowflake ingestion timestamp.
 - **Revenue logic:** order status interpretation, recognized revenue, refunds, and profitability are downstream business decisions.
 
@@ -64,7 +64,9 @@ retail_dbt/
 └── README.md
 ```
 
-Standalone Snowflake monitoring SQL, if retained in the main repository, belongs outside `retail_dbt/models` (for example under `SQL_scripts/monitoring/`). Monitoring queries are read-only and on-demand; scheduling and dashboards are owned by the orchestration/analytics team.
+Standalone Snowflake SQL is maintained outside the dbt model directory, under `SQL_scripts/silver/` in the shared repository. It is grouped by purpose (profiling, validation, monitoring, orchestration handoff). These are **read-only/on-demand SQL checks** and operational references, not dbt model replacements. Check the actual filenames in the repository; folder or worksheet organization does not itself schedule execution.
+
+The canonical cleaning/transformation logic remains in `retail_dbt/models/staging/*.sql` and should be run through dbt (it contains Jinja such as `source()`), not pasted as standalone Snowflake SQL. The seven singular quality checks remain in `retail_dbt/tests/technical_quality/`.
 
 ## Setup
 
@@ -115,10 +117,16 @@ Standalone Snowflake monitoring SQL, if retained in the main repository, belongs
 From inside `retail_dbt`:
 
 ```bash
-# Build six staging views and execute their tests plus the custom technical checks
+# Deploy or update the clickstream view after a SQL model definition change
+ dbt run --select stg_clickstream_events
+
+# Validate the clickstream view (schema tests and its singular technical test)
+ dbt test --select stg_clickstream_events invalid_clickstream_records
+
+# Build all six staging views and run all project quality tests
  dbt build --select path:models/staging path:tests/technical_quality
 
-# Rerun validations without rebuilding views (useful after new RAW data arrives)
+# After new RAW rows arrive, rerun all tests WITHOUT rebuilding the views
  dbt test --select path:models/staging path:tests/technical_quality
 
 # Generate and inspect documentation and lineage
@@ -130,11 +138,36 @@ The documentation site is available locally at `http://localhost:8080` while `db
 
 ### Quality assurance
 
-The project contains schema-based tests defined in `models/staging/staging_models.yml` and seven custom singular SQL tests under `tests/technical_quality/`. They check uniqueness, required identifiers, relationships, accepted values, arithmetic consistency, valid numbers, timestamps, and session/customer validity according to the implemented rules.
+The project defines **30 generic/schema tests** in `models/staging/staging_models.yml` (including `not_null` and `unique` on `EVENT_ID`) and **7 custom singular SQL tests** under `tests/technical_quality/`, for **37 configured tests** in total. They check uniqueness, required identifiers, relationships, accepted values, arithmetic consistency, valid numbers, timestamps, and session/customer validity according to the implemented rules.
 
 A singular test passes when its SQL returns **zero invalid rows**. An all-green dbt build confirms the tests run at that point in time; it is not an unconditional guarantee of future source quality.
 
-## Last Verified Baseline — October 26, 2026
+## Verification Status — October 27, 2026
+
+### Current clickstream verification
+
+The upstream RAW clickstream table was loaded with `EVENT_ID` as `NUMBER(38,0)`. The staging SQL model was updated to expose this ID while retaining `SESSION_KEY` and existing data-quality flags.
+
+The following results were **observed in Snowflake and dbt on October 27, 2026**:
+
+| Clickstream metric | Verified result |
+|---|---:|
+| RAW clickstream rows at inspection | 150,000 |
+| STAGING clickstream rows | 150,000 |
+| STAGING `EVENT_ID` values missing (`NULL`) | 0 |
+| Distinct STAGING `EVENT_ID` values | 150,000 |
+| Duplicate STAGING `EVENT_ID` rows | 0 |
+| Clickstream-focused dbt tests executed | 12 |
+| Clickstream-focused dbt tests passed | 12 |
+| Clickstream test warnings / errors | 0 / 0 |
+
+**Test scope matters:** the current dbt project has **37 configured quality tests** (30 generic + 7 singular), but the **latest observed post-change run covered only the 12 clickstream-related tests**. A full 37-test rerun after the new clickstream load has **not been established by these results**. A full `dbt build` would involve 6 view models plus 37 tests (43 operations) if all resources are selected and run successfully; **43 passed is not yet a claimed result**.
+
+The matching counts and unique/non-null event IDs are valid for the observed snapshot. They do **not** by themselves prove exactly-once Kafka ingestion, idempotent replay, or that every source event has arrived.
+
+### Prior OLTP baseline — October 26, 2026
+
+The following non-clickstream sources were validated previously. Recheck the numbers if their RAW tables have since changed:
 
 | Dataset | RAW rows | STAGING rows | Difference |
 |---|---:|---:|---:|
@@ -143,20 +176,12 @@ A singular test passes when its SQL returns **zero invalid rows**. An all-green 
 | Orders | 629,560 | 629,560 | 0 |
 | Order Items | 690,372 | 690,372 | 0 |
 | Inventory | 166,794 | 166,794 | 0 |
-| Clickstream Events | 6,000 | 6,000 | 0 |
 
-**Last successful dbt build:** 6 views + 35 data tests = **41 passed**, **0 warnings**, **0 errors**.
+The earlier full build passed **6 views + 35 tests = 41 operations** before the two `EVENT_ID` tests were added. That historical result should not be presented as a current full-project test run.
 
-Additional verified observations:
+Previously observed product issues included missing category codes (93,644), missing brands (43,613), and zero-price products (1,147). Earlier clickstream missing-value, payload-repeat, and timestamp counts belonged to a **superseded 6,000-event dataset** and must **not** be assumed to describe the new 150,000-event load.
 
-- Missing product category codes: **93,644**; missing product brands: **43,613**.
-- Missing clickstream category codes: **1,922**; missing clickstream brands: **792**.
-- Zero-price products: **1,147**; zero-price clickstream events: **9**.
-- Critical invalid-record checks: **0** in the tested categories.
-- One clickstream payload appeared **4 times**, giving **3 additional identical occurrences**; **none were removed**.
-- Last event timestamps matched between RAW and STAGING: historical `2019-10-01 02:30:06`, replay `2026-10-25 20:02:54`.
-
-These are **observed baseline values, not hard-coded expectations**. Recheck them when the ingestion pipeline writes new rows.
+All row counts and quality metrics are observed baselines, **not hard-coded expectations**. Recheck them after subsequent append/streaming activity.
 
 ## Streaming Behavior and Known Limitations
 
@@ -164,11 +189,26 @@ The Kafka producer/consumer is maintained separately by the ingestion team. The 
 
 1. Publishing to Kafka does not prove a consumer committed the events to Snowflake.
 2. Ingestion append and retry/idempotency behavior still requires an end-to-end confirmation test with the ingestion owner.
-3. The clickstream RAW table has no proven stable per-event ID or source offset; identical payloads should not be deduplicated blindly.
+3. `EVENT_ID` is now available in RAW and STAGING and was verified unique/non-null in the checked 150,000-row snapshot. Reliable retry/replay identity still depends on producer/consumer behavior: the same logical event must retain its ID on retry. Do not mistake the absence of duplicate IDs for proof of exactly-once delivery.
 4. A replayed old `EVENT_TIME` must not be discarded simply because an event timestamp is older than the current maximum.
 5. Automated tests and alerts require orchestration or scheduling; this repository supplies the tests, not the scheduler.
 
 **Current decision:** no incremental dbt tables are required at this layer. Revisit materialization only if measured query performance/cost or ingestion guarantees justify it.
+
+### Event ID and session key serve different purposes
+
+- `EVENT_ID`: source-provided event-level identifier; can be used by downstream `FACT_CLICKSTREAM_EVENTS` subject to agreed identity/replay rules.
+- `SESSION_KEY`: derived `SHA2` hash of the user ID and source session ID; multiple events in the same user session legitimately share it. It is **not** a substitute for `EVENT_ID`.
+
+### Orchestration handoff
+
+1. The ingestion owner must ensure the RAW tables are committed and the schema remains compatible. A Kafka producer success message alone is not sufficient.
+2. The STAGING **views** reflect new RAW rows at query time; do **not** schedule `dbt run` merely because a new batch of rows arrives. Run it when model definitions change or during deliberate redeployment.
+3. Schedule `dbt test --select path:models/staging path:tests/technical_quality` after ingestion commits or at the agreed cadence. The orchestration runtime needs dbt dependencies, a Snowflake profile/role, and securely provided credentials.
+4. Run the read-only checks under `SQL_scripts/silver/` to inspect reconciliation, event-ID integrity, quality summaries, and replay timestamps. A query returning counts is monitoring evidence, **not** a built-in trigger or alert.
+5. Refresh downstream Gold **tables** using the warehouse team's schedule/incremental logic, or query Gold **views** directly. Dashboard refresh cadence is configured separately; none of these are implemented by this dbt project.
+
+**Runbook note:** After a source-table drop/recreation, verify permissions, source schema compatibility, and current rows, then update or rebuild only affected dbt models if their SQL definitions changed. Rerun relevant tests. There is no need to recreate unrelated staging views.
 
 ## Handoff to Data Warehouse / Gold
 

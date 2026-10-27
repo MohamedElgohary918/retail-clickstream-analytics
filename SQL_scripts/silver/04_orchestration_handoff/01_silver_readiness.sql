@@ -1,0 +1,26 @@
+-- ORCHESTRATION HANDOFF: lightweight pre-Gold readiness signal for Clickstream.
+-- READ ONLY. This checks source/staging count and EVENT_ID uniqueness/completeness.
+-- It DOES NOT replace dbt's 37 automated tests and is NOT a streaming trigger by itself.
+WITH raw_stats AS (
+    SELECT COUNT(*) AS ROWS_TOTAL
+    FROM RETAIL_CLICKSTREAM_DB.RAW.RAW_CLICKSTREAM_EVENTS
+), stage_stats AS (
+    SELECT COUNT(*) AS ROWS_TOTAL,
+           COUNT_IF(e.EVENT_ID IS NULL) AS NULL_EVENT_IDS,
+           COUNT(DISTINCT e.EVENT_ID) AS DISTINCT_EVENT_IDS
+    FROM RETAIL_CLICKSTREAM_DB.STAGING.STG_CLICKSTREAM_EVENTS AS e
+)
+SELECT
+    CURRENT_TIMESTAMP() AS CHECKED_AT,
+    r.ROWS_TOTAL AS RAW_EVENTS,
+    s.ROWS_TOTAL AS STAGING_EVENTS,
+    s.NULL_EVENT_IDS,
+    s.ROWS_TOTAL - s.NULL_EVENT_IDS - s.DISTINCT_EVENT_IDS AS DUPLICATE_EVENT_ID_ROWS,
+    IFF(r.ROWS_TOTAL = s.ROWS_TOTAL
+        AND s.NULL_EVENT_IDS = 0
+        AND s.ROWS_TOTAL = s.DISTINCT_EVENT_IDS,
+        'READY_FOR_FURTHER_VALIDATION',
+        'INVESTIGATE'
+    ) AS READINESS_STATUS
+FROM raw_stats r
+CROSS JOIN stage_stats s;

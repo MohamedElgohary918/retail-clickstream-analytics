@@ -1,0 +1,31 @@
+-- EVENT_ID validation across RAW and STAGING (read-only).
+-- The source and staging are queried in the same statement for a comparable snapshot.
+-- Unique/non-null IDs are not proof of exactly-once delivery unless retry IDs are stable.
+WITH raw_stats AS (
+    SELECT COUNT(*) AS ROWS_TOTAL,
+           COUNT_IF(e.EVENT_ID IS NULL) AS NULL_IDS,
+           COUNT(DISTINCT e.EVENT_ID) AS DISTINCT_IDS
+    FROM RETAIL_CLICKSTREAM_DB.RAW.RAW_CLICKSTREAM_EVENTS AS e
+), stage_stats AS (
+    SELECT COUNT(*) AS ROWS_TOTAL,
+           COUNT_IF(e.EVENT_ID IS NULL) AS NULL_IDS,
+           COUNT(DISTINCT e.EVENT_ID) AS DISTINCT_IDS
+    FROM RETAIL_CLICKSTREAM_DB.STAGING.STG_CLICKSTREAM_EVENTS AS e
+)
+SELECT
+    r.ROWS_TOTAL AS RAW_ROWS,
+    s.ROWS_TOTAL AS STAGING_ROWS,
+    s.ROWS_TOTAL - r.ROWS_TOTAL AS ROW_DIFFERENCE,
+    r.NULL_IDS AS RAW_NULL_EVENT_IDS,
+    s.NULL_IDS AS STAGING_NULL_EVENT_IDS,
+    r.ROWS_TOTAL - r.NULL_IDS - r.DISTINCT_IDS AS RAW_DUPLICATE_EVENT_ID_ROWS,
+    s.ROWS_TOTAL - s.NULL_IDS - s.DISTINCT_IDS AS STAGING_DUPLICATE_EVENT_ID_ROWS,
+    IFF(
+        r.ROWS_TOTAL = s.ROWS_TOTAL
+        AND r.NULL_IDS = 0 AND s.NULL_IDS = 0
+        AND r.DISTINCT_IDS = r.ROWS_TOTAL
+        AND s.DISTINCT_IDS = s.ROWS_TOTAL,
+        'PASS', 'INVESTIGATE'
+    ) AS EVENT_ID_RECONCILIATION
+FROM raw_stats AS r
+CROSS JOIN stage_stats AS s;

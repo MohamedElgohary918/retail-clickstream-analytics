@@ -1,9 +1,9 @@
 {{ config(materialized='view') }}
 
--- EVENT_TIME = original historical time; SIMULATED_AT = replay timestamp (not guaranteed ingestion timestamp).
--- Without an immutable EVENT_ID / Kafka partition + offset, payload-equivalent events must NOT be deduplicated.
+
 WITH source_data AS (
     SELECT
+        e.EVENT_ID,
         e.EVENT_TIME,
         LOWER(TRIM(e.EVENT_TYPE)) AS EVENT_TYPE,
         e.PRODUCT_ID,
@@ -16,7 +16,9 @@ WITH source_data AS (
         e.SIMULATED_AT
     FROM {{ source('retail_raw', 'clickstream_events') }} AS e
 )
+
 SELECT
+    s.EVENT_ID,
     s.EVENT_TIME,
     s.EVENT_TYPE,
     s.PRODUCT_ID,
@@ -29,15 +31,31 @@ SELECT
     s.USER_ID,
     s.USER_SESSION,
     s.SIMULATED_AT,
+
     CASE
-        WHEN s.USER_ID IS NOT NULL AND s.USER_SESSION IS NOT NULL
-            THEN SHA2(CONCAT(TO_VARCHAR(s.USER_ID), '|', s.USER_SESSION), 256)
+        WHEN s.USER_ID IS NOT NULL
+             AND s.USER_SESSION IS NOT NULL
+            THEN SHA2(
+                CONCAT(TO_VARCHAR(s.USER_ID), '|', s.USER_SESSION),
+                256
+            )
         ELSE NULL
     END AS SESSION_KEY,
+
     (s.PRICE = 0) AS IS_ZERO_PRICE,
     (s.CATEGORY_CODE IS NULL) AS IS_MISSING_CATEGORY_CODE,
     (s.BRAND IS NULL) AS IS_MISSING_BRAND,
+
     (s.PRICE IS NULL OR s.PRICE < 0) AS HAS_INVALID_PRICE,
-    (s.USER_ID IS NULL OR s.USER_SESSION IS NULL) AS HAS_INVALID_SESSION_ID,
-    (s.EVENT_TIME IS NULL OR s.SIMULATED_AT IS NULL) AS HAS_MISSING_TIMESTAMPS
+
+    (
+        s.USER_ID IS NULL
+        OR s.USER_SESSION IS NULL
+    ) AS HAS_INVALID_SESSION_ID,
+
+    (
+        s.EVENT_TIME IS NULL
+        OR s.SIMULATED_AT IS NULL
+    ) AS HAS_MISSING_TIMESTAMPS
+
 FROM source_data AS s

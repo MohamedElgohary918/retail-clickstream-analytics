@@ -1,0 +1,133 @@
+
+version: 2
+
+models:
+  - name: dim_customer
+    description: "Customer dimension containing customer attributes used for analytical reporting."
+    columns:
+      - name: customer_id
+        description: "Unique identifier for each customer."
+      - name: first_name
+        description: "Customer first name."
+      - name: last_name
+        description: "Customer last name."
+      - name: email
+        description: "Customer email address."
+      - name: country
+        description: "Customer country."
+      - name: registration_date
+        description: "Timestamp when the customer registered."
+
+  - name: dim_date
+    description: "Date and time dimension derived from order timestamps."
+    columns:
+      - name: order_timestamp
+        description: "Order timestamp used as the dimension key."
+      - name: full_date
+        description: "Calendar date extracted from the order timestamp."
+      - name: year
+        description: "Calendar year."
+      - name: quarter
+        description: "Calendar quarter."
+      - name: month
+        description: "Calendar month number."
+      - name: day
+        description: "Day of the month."
+      - name: day_of_week
+        description: "Name of the weekday."
+      - name: month_name
+        description: "Name of the month."
+
+  - name: dim_product
+    description: "Product dimension containing product, category, brand, and pricing attributes."
+    columns:
+      - name: product_id
+        description: "Unique product identifier."
+      - name: category_id
+        description: "Product category identifier."
+      - name: category_code_label
+        description: "Readable product category label."
+      - name: brand_label
+        description: "Brand label, including the staging representation for missing values."
+      - name: price
+        description: "Product price."
+      - name: cost
+        description: "Product cost."
+
+  - name: dim_inventory
+    description: "Inventory dimension containing stock levels and inventory quality indicators."
+    columns:
+      - name: product_id
+        description: "Product identifier associated with the inventory record."
+      - name: stock_quantity
+        description: "Recorded stock quantity."
+      - name: reorder_level
+        description: "Stock threshold used to identify replenishment needs."
+      - name: inventory_origin
+        description: "Source or origin label for the inventory record."
+      - name: is_out_of_stock
+        description: "Indicates whether the product is out of stock."
+      - name: is_at_or_below_reorder_level
+        description: "Indicates whether stock is at or below the reorder level."
+      - name: has_invalid_stock_quantity
+        description: "Indicates whether the stock quantity is invalid."
+      - name: has_invalid_reorder_level
+        description: "Indicates whether the reorder level is invalid."
+      - name: is_missing_inventory_origin
+        description: "Indicates whether the inventory origin is missing."
+
+  - name: fact_order_items
+    description: "Order-item fact table with one row per order and product combination."
+    columns:
+      - name: order_id
+        description: "Order identifier; part of the composite key."
+      - name: product_id
+        description: "Product identifier; part of the composite key."
+      - name: customer_id
+        description: "Customer who placed the order."
+      - name: order_timestamp
+        description: "Timestamp associated with the order."
+      - name: order_status
+        description: "Current status of the order."
+      - name: quantity
+        description: "Quantity of the product in the order item."
+      - name: unit_price
+        description: "Price per unit for the order item."
+      - name: line_total
+        description: "Total amount for the order item."
+      - name: first_purchase_time
+        description: "First purchase timestamp supplied by staging."
+      - name: order_total
+        description: "Total order amount, which may repeat across multiple order-item rows."
+
+  - name: fact_clickstream_events
+    description: "Clickstream fact table with one row per recorded user event."
+    columns:
+      - name: event_id
+        description: "Numeric event identifier used to identify an event."
+      - name: event_time
+        description: "Timestamp when the event occurred."
+      - name: event_type
+        description: "Event action, such as view, cart, remove_from_cart, or purchase."
+      - name: product_id
+        description: "Product associated with the event."
+      - name: category_id
+        description: "Category identifier associated with the event."
+      - name: brand
+        description: "Brand associated with the event."
+      - name: user_id
+        description: "Identifier of the user who generated the event."
+      - name: user_session
+        description: "Original user session identifier."
+      - name: session_key
+        description: "Normalized or derived session key."
+      - name: is_zero_price
+        description: "Indicates whether the event has a zero price."
+      - name: is_missing_category_code
+        description: "Indicates whether the category code is missing."
+      - name: has_invalid_price
+        description: "Indicates whether the price is invalid."
+      - name: has_invalid_session_id
+        description: "Indicates whether the session identifier is invalid."
+      - name: has_missing_timestamps
+        description: "Indicates whether the event timestamp is missing."

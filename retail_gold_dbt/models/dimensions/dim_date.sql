@@ -1,0 +1,20 @@
+
+{{
+    config(
+        materialized='incremental',
+        incremental_strategy='merge',
+        unique_key='ORDER_TIMESTAMP'
+    )
+}}
+
+SELECT DISTINCT
+    ORDER_TIMESTAMP,
+    TO_DATE(ORDER_TIMESTAMP) AS FULL_DATE,
+    YEAR(ORDER_TIMESTAMP) AS YEAR,
+    QUARTER(ORDER_TIMESTAMP) AS QUARTER,
+    MONTH(ORDER_TIMESTAMP) AS MONTH,
+    DAY(ORDER_TIMESTAMP) AS DAY,
+    DAYNAME(ORDER_TIMESTAMP) AS DAY_OF_WEEK,
+    MONTHNAME(ORDER_TIMESTAMP) AS MONTH_NAME
+FROM {{ source('retail_staging', 'STG_ORDERS') }}
+WHERE ORDER_TIMESTAMP IS NOT NULL

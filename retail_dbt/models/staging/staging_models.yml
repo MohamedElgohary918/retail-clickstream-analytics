@@ -1,3 +1,4 @@
+
 version: 2
 
 models:
@@ -18,6 +19,7 @@ models:
     columns:
       - name: ORDER_ID
         data_tests: [not_null, unique]
+
       - name: CUSTOMER_ID
         data_tests:
           - not_null
@@ -25,6 +27,7 @@ models:
               arguments:
                 to: ref('stg_customers')
                 field: CUSTOMER_ID
+
       - name: ORDER_STATUS
         data_tests:
           - not_null
@@ -37,6 +40,7 @@ models:
     columns:
       - name: ORDER_ITEM_ID
         data_tests: [not_null, unique]
+
       - name: ORDER_ID
         data_tests:
           - not_null
@@ -44,6 +48,7 @@ models:
               arguments:
                 to: ref('stg_orders')
                 field: ORDER_ID
+
       - name: PRODUCT_ID
         data_tests:
           - not_null
@@ -65,18 +70,27 @@ models:
                 field: PRODUCT_ID
 
   - name: stg_clickstream_events
-    description: "Historical clickstream replay without unsafe deduplication; includes a composite session key."
+    description: "Cleaned clickstream events with stable event identifiers and a composite session key."
     columns:
+      - name: EVENT_ID
+        description: "Unique event identifier supplied by the ingestion pipeline."
+        data_tests:
+          - not_null
+          - unique
+
       - name: EVENT_TIME
         data_tests: [not_null]
+
       - name: SIMULATED_AT
         data_tests: [not_null]
+
       - name: EVENT_TYPE
         data_tests:
           - not_null
           - accepted_values:
               arguments:
                 values: ['view', 'cart', 'remove_from_cart', 'purchase']
+
       - name: USER_ID
         data_tests:
           - not_null
@@ -84,6 +98,7 @@ models:
               arguments:
                 to: ref('stg_customers')
                 field: CUSTOMER_ID
+
       - name: PRODUCT_ID
         data_tests:
           - not_null
@@ -91,5 +106,6 @@ models:
               arguments:
                 to: ref('stg_products')
                 field: PRODUCT_ID
+
       - name: USER_SESSION
         data_tests: [not_null]

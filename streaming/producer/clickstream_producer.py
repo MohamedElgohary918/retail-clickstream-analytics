@@ -30,7 +30,7 @@ CSV_COLUMNS = [
 ]
 
 
-def parse_event(row):
+def parse_event(row, event_id):
     """Convert one CSV row into the Snowflake RAW event format."""
 
     event_time = datetime.strptime(
@@ -38,6 +38,7 @@ def parse_event(row):
     )
 
     return {
+        "EVENT_ID": event_id,
         "EVENT_TIME": event_time.strftime("%Y-%m-%d %H:%M:%S"),
         "EVENT_TYPE": row["event_type"],
         "PRODUCT_ID": int(row["product_id"]) if row["product_id"] else None,
@@ -76,6 +77,7 @@ def load_checkpoint(checkpoint_path, source_info, reset=False):
         return {
             **source_info,
             "last_processed_row": 0,
+            "last_event_id": 0,
         }
 
     with checkpoint_path.open("r", encoding="utf-8") as file:
@@ -93,7 +95,26 @@ def load_checkpoint(checkpoint_path, source_info, reset=False):
     if not isinstance(last_row, int) or last_row < 0:
         raise ValueError("Invalid last_processed_row in checkpoint.")
 
-    print(f"Resuming after source row {last_row:,}.")
+    # Backward compatibility with checkpoints created before last_event_id
+    # was introduced. This is valid because event_id equals the source row.
+    last_event_id = checkpoint.get("last_event_id", last_row)
+
+    if not isinstance(last_event_id, int) or last_event_id < 0:
+        raise ValueError("Invalid last_event_id in checkpoint.")
+
+    if last_event_id != last_row:
+        raise ValueError(
+            "Checkpoint inconsistency: last_event_id must equal "
+            "last_processed_row for this producer."
+        )
+
+    checkpoint["last_event_id"] = last_event_id
+
+    print(
+        f"Resuming after source row {last_row:,} "
+        f"(last event ID: {last_event_id:,})."
+    )
+
     return checkpoint
 
 
@@ -189,13 +210,17 @@ def main():
                 if row_number <= last_processed_row:
                     continue
 
-                event = parse_event(row)
+                # Generate a stable ID from the source row number.
+                event_id = row_number
+
+                event = parse_event(row, event_id)
 
                 # Wait for Kafka to acknowledge the event.
                 producer.send(TOPIC, value=event).get(timeout=30)
 
                 # Save progress only after Kafka acknowledges the event.
                 checkpoint["last_processed_row"] = row_number
+                checkpoint["last_event_id"] = event_id
                 save_checkpoint(checkpoint_path, checkpoint)
 
                 sent_this_run += 1
@@ -204,7 +229,8 @@ def main():
                     print(
                         f"Published {sent_this_run:,}/{args.limit:,} "
                         f"events this run. "
-                        f"Source row: {row_number:,}"
+                        f"Source row: {row_number:,}, "
+                        f"Event ID: {event_id:,}"
                     )
 
                 if sent_this_run >= args.limit:
@@ -225,6 +251,7 @@ def main():
             "Last acknowledged source row: "
             f"{checkpoint['last_processed_row']:,}"
         )
+        print(f"Last event ID: {checkpoint['last_event_id']:,}")
         print(f"Checkpoint: {checkpoint_path}")
 
     except (KafkaError, ValueError, OSError) as error:

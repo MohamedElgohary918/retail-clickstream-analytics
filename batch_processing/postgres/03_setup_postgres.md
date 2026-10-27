@@ -1,4 +1,3 @@
-
 ## Setup OLTP Database 
 
 **Step 1 —Pull the PostgreSQL image**
@@ -158,4 +157,3 @@ Run this command one by one.
 ```
 
 **Important:** Run each command separately and wait for its result before executing the next. If a table was already imported successfully, don't import it again.
-

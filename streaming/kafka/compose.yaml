@@ -99,6 +99,21 @@ services:
     volumes:
       - /home/mohamed-elgohary/.config/retail-clickstream/snowflake:/secrets/snowflake:ro
 
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      DYNAMIC_CONFIG_ENABLED: "true"
+      KAFKA_CLUSTERS_0_NAME: retail-clickstream
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: kafka-connect
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://connect:8083
+    depends_on:
+      - kafka
+      - connect
+    restart: unless-stopped
 
 volumes:
   kafka_data:

@@ -1,0 +1,251 @@
+-- ============================================================================
+-- 06_orchestration / 01_gold_refresh_statements.sql
+-- STEP 1: Plain-SQL equivalents of the dbt incremental-MERGE Gold models.
+--
+-- Each statement below = ONE future Snowflake TASK body.
+-- Behaviour matches dbt's incremental MERGE (insert new keys, update changed
+-- keys, never delete). One refinement: UPDATE only fires when a value actually
+-- changed (IS DISTINCT FROM is NULL-safe), so each run reports meaningful
+-- "rows inserted / rows updated" numbers and does not rewrite unchanged rows.
+--
+-- HOW TO RUN: execute each MERGE ONE AT A TIME (select it, then Run) so you can
+-- read the "number of rows inserted / updated" result. Then run Section 7.
+-- ============================================================================
+USE ROLE DBT_SILVER_ROLE;
+USE WAREHOUSE RETAIL_WH;
+USE DATABASE RETAIL_CLICKSTREAM_DB;
+USE SCHEMA MARTS;
+
+
+-- ============================================================================
+-- 1. DIM_CUSTOMER   (key: CUSTOMER_ID)   <- STG_CUSTOMERS
+-- ============================================================================
+MERGE INTO RETAIL_CLICKSTREAM_DB.MARTS.DIM_CUSTOMER AS t
+USING (
+    SELECT CUSTOMER_ID, FIRST_NAME, LAST_NAME, EMAIL, COUNTRY, REGISTRATION_DATE
+    FROM RETAIL_CLICKSTREAM_DB.STAGING.STG_CUSTOMERS
+) AS s
+ON t.CUSTOMER_ID = s.CUSTOMER_ID
+WHEN MATCHED AND (
+       t.FIRST_NAME        IS DISTINCT FROM s.FIRST_NAME
+    OR t.LAST_NAME         IS DISTINCT FROM s.LAST_NAME
+    OR t.EMAIL             IS DISTINCT FROM s.EMAIL
+    OR t.COUNTRY           IS DISTINCT FROM s.COUNTRY
+    OR t.REGISTRATION_DATE IS DISTINCT FROM s.REGISTRATION_DATE
+) THEN UPDATE SET
+    t.FIRST_NAME        = s.FIRST_NAME,
+    t.LAST_NAME         = s.LAST_NAME,
+    t.EMAIL             = s.EMAIL,
+    t.COUNTRY           = s.COUNTRY,
+    t.REGISTRATION_DATE = s.REGISTRATION_DATE
+WHEN NOT MATCHED THEN INSERT
+    (CUSTOMER_ID, FIRST_NAME, LAST_NAME, EMAIL, COUNTRY, REGISTRATION_DATE)
+VALUES
+    (s.CUSTOMER_ID, s.FIRST_NAME, s.LAST_NAME, s.EMAIL, s.COUNTRY, s.REGISTRATION_DATE);
+
+
+-- ============================================================================
+-- 2. DIM_DATE   (key: ORDER_TIMESTAMP)   <- STG_ORDERS
+-- ============================================================================
+MERGE INTO RETAIL_CLICKSTREAM_DB.MARTS.DIM_DATE AS t
+USING (
+    SELECT DISTINCT
+        ORDER_TIMESTAMP,
+        TO_DATE(ORDER_TIMESTAMP)   AS FULL_DATE,
+        YEAR(ORDER_TIMESTAMP)      AS YEAR,
+        QUARTER(ORDER_TIMESTAMP)   AS QUARTER,
+        MONTH(ORDER_TIMESTAMP)     AS MONTH,
+        DAY(ORDER_TIMESTAMP)       AS DAY,
+        DAYNAME(ORDER_TIMESTAMP)   AS DAY_OF_WEEK,
+        MONTHNAME(ORDER_TIMESTAMP) AS MONTH_NAME
+    FROM RETAIL_CLICKSTREAM_DB.STAGING.STG_ORDERS
+    WHERE ORDER_TIMESTAMP IS NOT NULL
+) AS s
+ON t.ORDER_TIMESTAMP = s.ORDER_TIMESTAMP
+WHEN MATCHED AND (
+       t.FULL_DATE   IS DISTINCT FROM s.FULL_DATE
+    OR t.YEAR        IS DISTINCT FROM s.YEAR
+    OR t.QUARTER     IS DISTINCT FROM s.QUARTER
+    OR t.MONTH       IS DISTINCT FROM s.MONTH
+    OR t.DAY         IS DISTINCT FROM s.DAY
+    OR t.DAY_OF_WEEK IS DISTINCT FROM s.DAY_OF_WEEK
+    OR t.MONTH_NAME  IS DISTINCT FROM s.MONTH_NAME
+) THEN UPDATE SET
+    t.FULL_DATE   = s.FULL_DATE,
+    t.YEAR        = s.YEAR,
+    t.QUARTER     = s.QUARTER,
+    t.MONTH       = s.MONTH,
+    t.DAY         = s.DAY,
+    t.DAY_OF_WEEK = s.DAY_OF_WEEK,
+    t.MONTH_NAME  = s.MONTH_NAME
+WHEN NOT MATCHED THEN INSERT
+    (ORDER_TIMESTAMP, FULL_DATE, YEAR, QUARTER, MONTH, DAY, DAY_OF_WEEK, MONTH_NAME)
+VALUES
+    (s.ORDER_TIMESTAMP, s.FULL_DATE, s.YEAR, s.QUARTER, s.MONTH, s.DAY, s.DAY_OF_WEEK, s.MONTH_NAME);
+
+
+-- ============================================================================
+-- 3. DIM_PRODUCT   (key: PRODUCT_ID)   <- STG_PRODUCTS
+-- ============================================================================
+MERGE INTO RETAIL_CLICKSTREAM_DB.MARTS.DIM_PRODUCT AS t
+USING (
+    SELECT PRODUCT_ID, CATEGORY_ID, CATEGORY_CODE_LABEL, BRAND_LABEL, PRICE, COST
+    FROM RETAIL_CLICKSTREAM_DB.STAGING.STG_PRODUCTS
+) AS s
+ON t.PRODUCT_ID = s.PRODUCT_ID
+WHEN MATCHED AND (
+       t.CATEGORY_ID         IS DISTINCT FROM s.CATEGORY_ID
+    OR t.CATEGORY_CODE_LABEL IS DISTINCT FROM s.CATEGORY_CODE_LABEL
+    OR t.BRAND_LABEL         IS DISTINCT FROM s.BRAND_LABEL
+    OR t.PRICE               IS DISTINCT FROM s.PRICE
+    OR t.COST                IS DISTINCT FROM s.COST
+) THEN UPDATE SET
+    t.CATEGORY_ID         = s.CATEGORY_ID,
+    t.CATEGORY_CODE_LABEL = s.CATEGORY_CODE_LABEL,
+    t.BRAND_LABEL         = s.BRAND_LABEL,
+    t.PRICE               = s.PRICE,
+    t.COST                = s.COST
+WHEN NOT MATCHED THEN INSERT
+    (PRODUCT_ID, CATEGORY_ID, CATEGORY_CODE_LABEL, BRAND_LABEL, PRICE, COST)
+VALUES
+    (s.PRODUCT_ID, s.CATEGORY_ID, s.CATEGORY_CODE_LABEL, s.BRAND_LABEL, s.PRICE, s.COST);
+
+
+-- ============================================================================
+-- 4. FACT_ORDER_ITEMS   (key: ORDER_ID + PRODUCT_ID)   <- STG_ORDER_ITEMS + STG_ORDERS
+-- ============================================================================
+MERGE INTO RETAIL_CLICKSTREAM_DB.MARTS.FACT_ORDER_ITEMS AS t
+USING (
+    SELECT
+        oi.ORDER_ID,
+        oi.PRODUCT_ID,
+        o.CUSTOMER_ID,
+        o.ORDER_TIMESTAMP,
+        o.ORDER_STATUS,
+        oi.QUANTITY,
+        oi.UNIT_PRICE,
+        oi.LINE_TOTAL,
+        oi.FIRST_PURCHASE_TIME,
+        o.ORDER_TOTAL
+    FROM RETAIL_CLICKSTREAM_DB.STAGING.STG_ORDER_ITEMS AS oi
+    INNER JOIN RETAIL_CLICKSTREAM_DB.STAGING.STG_ORDERS AS o
+        ON oi.ORDER_ID = o.ORDER_ID
+) AS s
+ON  t.ORDER_ID   = s.ORDER_ID
+AND t.PRODUCT_ID = s.PRODUCT_ID
+WHEN MATCHED AND (
+       t.CUSTOMER_ID         IS DISTINCT FROM s.CUSTOMER_ID
+    OR t.ORDER_TIMESTAMP     IS DISTINCT FROM s.ORDER_TIMESTAMP
+    OR t.ORDER_STATUS        IS DISTINCT FROM s.ORDER_STATUS
+    OR t.QUANTITY            IS DISTINCT FROM s.QUANTITY
+    OR t.UNIT_PRICE          IS DISTINCT FROM s.UNIT_PRICE
+    OR t.LINE_TOTAL          IS DISTINCT FROM s.LINE_TOTAL
+    OR t.FIRST_PURCHASE_TIME IS DISTINCT FROM s.FIRST_PURCHASE_TIME
+    OR t.ORDER_TOTAL         IS DISTINCT FROM s.ORDER_TOTAL
+) THEN UPDATE SET
+    t.CUSTOMER_ID         = s.CUSTOMER_ID,
+    t.ORDER_TIMESTAMP     = s.ORDER_TIMESTAMP,
+    t.ORDER_STATUS        = s.ORDER_STATUS,
+    t.QUANTITY            = s.QUANTITY,
+    t.UNIT_PRICE          = s.UNIT_PRICE,
+    t.LINE_TOTAL          = s.LINE_TOTAL,
+    t.FIRST_PURCHASE_TIME = s.FIRST_PURCHASE_TIME,
+    t.ORDER_TOTAL         = s.ORDER_TOTAL
+WHEN NOT MATCHED THEN INSERT
+    (ORDER_ID, PRODUCT_ID, CUSTOMER_ID, ORDER_TIMESTAMP, ORDER_STATUS, QUANTITY,
+     UNIT_PRICE, LINE_TOTAL, FIRST_PURCHASE_TIME, ORDER_TOTAL)
+VALUES
+    (s.ORDER_ID, s.PRODUCT_ID, s.CUSTOMER_ID, s.ORDER_TIMESTAMP, s.ORDER_STATUS, s.QUANTITY,
+     s.UNIT_PRICE, s.LINE_TOTAL, s.FIRST_PURCHASE_TIME, s.ORDER_TOTAL);
+
+
+-- ============================================================================
+-- 5. FACT_CLICKSTREAM_EVENTS   (key: EVENT_ID)   <- STG_CLICKSTREAM_EVENTS
+-- NOTE: fails by design if staging has duplicate EVENT_IDs (Snowflake rejects
+-- a MERGE whose source matches one target row twice). The Silver readiness
+-- gate (Step 3) stops the pipeline before that happens.
+-- ============================================================================
+MERGE INTO RETAIL_CLICKSTREAM_DB.MARTS.FACT_CLICKSTREAM_EVENTS AS t
+USING (
+    SELECT
+        EVENT_ID, EVENT_TIME, EVENT_TYPE, PRODUCT_ID, CATEGORY_ID, BRAND,
+        USER_ID, USER_SESSION, SESSION_KEY,
+        IS_ZERO_PRICE, IS_MISSING_CATEGORY_CODE, HAS_INVALID_PRICE,
+        HAS_INVALID_SESSION_ID, HAS_MISSING_TIMESTAMPS
+    FROM RETAIL_CLICKSTREAM_DB.STAGING.STG_CLICKSTREAM_EVENTS
+) AS s
+ON t.EVENT_ID = s.EVENT_ID
+WHEN MATCHED AND (
+       t.EVENT_TIME               IS DISTINCT FROM s.EVENT_TIME
+    OR t.EVENT_TYPE               IS DISTINCT FROM s.EVENT_TYPE
+    OR t.PRODUCT_ID               IS DISTINCT FROM s.PRODUCT_ID
+    OR t.CATEGORY_ID              IS DISTINCT FROM s.CATEGORY_ID
+    OR t.BRAND                    IS DISTINCT FROM s.BRAND
+    OR t.USER_ID                  IS DISTINCT FROM s.USER_ID
+    OR t.USER_SESSION             IS DISTINCT FROM s.USER_SESSION
+    OR t.SESSION_KEY              IS DISTINCT FROM s.SESSION_KEY
+    OR t.IS_ZERO_PRICE            IS DISTINCT FROM s.IS_ZERO_PRICE
+    OR t.IS_MISSING_CATEGORY_CODE IS DISTINCT FROM s.IS_MISSING_CATEGORY_CODE
+    OR t.HAS_INVALID_PRICE        IS DISTINCT FROM s.HAS_INVALID_PRICE
+    OR t.HAS_INVALID_SESSION_ID   IS DISTINCT FROM s.HAS_INVALID_SESSION_ID
+    OR t.HAS_MISSING_TIMESTAMPS   IS DISTINCT FROM s.HAS_MISSING_TIMESTAMPS
+) THEN UPDATE SET
+    t.EVENT_TIME               = s.EVENT_TIME,
+    t.EVENT_TYPE               = s.EVENT_TYPE,
+    t.PRODUCT_ID               = s.PRODUCT_ID,
+    t.CATEGORY_ID              = s.CATEGORY_ID,
+    t.BRAND                    = s.BRAND,
+    t.USER_ID                  = s.USER_ID,
+    t.USER_SESSION             = s.USER_SESSION,
+    t.SESSION_KEY              = s.SESSION_KEY,
+    t.IS_ZERO_PRICE            = s.IS_ZERO_PRICE,
+    t.IS_MISSING_CATEGORY_CODE = s.IS_MISSING_CATEGORY_CODE,
+    t.HAS_INVALID_PRICE        = s.HAS_INVALID_PRICE,
+    t.HAS_INVALID_SESSION_ID   = s.HAS_INVALID_SESSION_ID,
+    t.HAS_MISSING_TIMESTAMPS   = s.HAS_MISSING_TIMESTAMPS
+WHEN NOT MATCHED THEN INSERT
+    (EVENT_ID, EVENT_TIME, EVENT_TYPE, PRODUCT_ID, CATEGORY_ID, BRAND,
+     USER_ID, USER_SESSION, SESSION_KEY,
+     IS_ZERO_PRICE, IS_MISSING_CATEGORY_CODE, HAS_INVALID_PRICE,
+     HAS_INVALID_SESSION_ID, HAS_MISSING_TIMESTAMPS)
+VALUES
+    (s.EVENT_ID, s.EVENT_TIME, s.EVENT_TYPE, s.PRODUCT_ID, s.CATEGORY_ID, s.BRAND,
+     s.USER_ID, s.USER_SESSION, s.SESSION_KEY,
+     s.IS_ZERO_PRICE, s.IS_MISSING_CATEGORY_CODE, s.HAS_INVALID_PRICE,
+     s.HAS_INVALID_SESSION_ID, s.HAS_MISSING_TIMESTAMPS);
+
+
+-- ============================================================================
+-- 6. (Inventory is handled in Step 2: snapshot + DIM_INVENTORY)
+-- ============================================================================
+
+
+-- ============================================================================
+-- 7. VERIFICATION - run after all five MERGEs.
+-- Gold row count should equal the distinct-key count in staging.
+-- (While Kafka is streaming, FACT_CLICKSTREAM_EVENTS may differ by a few rows
+--  because new events arrive between the MERGE and this check; re-run to confirm.)
+-- ============================================================================
+SELECT 'DIM_CUSTOMER' AS gold_table,
+       (SELECT COUNT(*) FROM RETAIL_CLICKSTREAM_DB.MARTS.DIM_CUSTOMER) AS gold_rows,
+       (SELECT COUNT(DISTINCT CUSTOMER_ID) FROM RETAIL_CLICKSTREAM_DB.STAGING.STG_CUSTOMERS) AS expected_rows
+UNION ALL
+SELECT 'DIM_DATE',
+       (SELECT COUNT(*) FROM RETAIL_CLICKSTREAM_DB.MARTS.DIM_DATE),
+       (SELECT COUNT(DISTINCT ORDER_TIMESTAMP) FROM RETAIL_CLICKSTREAM_DB.STAGING.STG_ORDERS
+         WHERE ORDER_TIMESTAMP IS NOT NULL)
+UNION ALL
+SELECT 'DIM_PRODUCT',
+       (SELECT COUNT(*) FROM RETAIL_CLICKSTREAM_DB.MARTS.DIM_PRODUCT),
+       (SELECT COUNT(DISTINCT PRODUCT_ID) FROM RETAIL_CLICKSTREAM_DB.STAGING.STG_PRODUCTS)
+UNION ALL
+SELECT 'FACT_ORDER_ITEMS',
+       (SELECT COUNT(*) FROM RETAIL_CLICKSTREAM_DB.MARTS.FACT_ORDER_ITEMS),
+       (SELECT COUNT(*) FROM (
+            SELECT DISTINCT oi.ORDER_ID, oi.PRODUCT_ID
+            FROM RETAIL_CLICKSTREAM_DB.STAGING.STG_ORDER_ITEMS oi
+            INNER JOIN RETAIL_CLICKSTREAM_DB.STAGING.STG_ORDERS o ON oi.ORDER_ID = o.ORDER_ID))
+UNION ALL
+SELECT 'FACT_CLICKSTREAM_EVENTS',
+       (SELECT COUNT(*) FROM RETAIL_CLICKSTREAM_DB.MARTS.FACT_CLICKSTREAM_EVENTS),
+       (SELECT COUNT(DISTINCT EVENT_ID) FROM RETAIL_CLICKSTREAM_DB.STAGING.STG_CLICKSTREAM_EVENTS);
